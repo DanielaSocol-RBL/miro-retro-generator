@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Preview and generate an editable sprint retrospective in Miro.">
+  <title>Miro Retrospective Generator</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Instrument+Serif&display=swap">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">Retrospective Generator</span>
+    </div>
+  </header>
+  <main class="page">
+    <div class="intro">
+      <h1>Set up a sprint retrospective</h1>
+      <p>Choose a theme, preview the layout, and add it to a Miro board.</p>
+    </div>
+    <div class="workspace">
+      <section class="panel settings" aria-labelledby="settings-title">
+        <h2 id="settings-title">Retrospective settings</h2>
+        <form id="generator">
+          <label for="theme">Theme</label>
+          <div class="select-wrap"><select id="theme" name="theme"></select></div>
+          <label for="sprint">Sprint number</label>
+          <input id="sprint" name="sprint" type="text" required maxlength="24" autocomplete="off" aria-describedby="sprint-error">
+          <p id="sprint-error" class="field-error" hidden></p>
+
+          <div class="destination">
+            <label for="board">Destination Miro board</label>
+            <p id="miro-status" class="hint">Checking Miro connection…</p>
+            <button id="connect" type="button" class="secondary" hidden>Connect to Miro</button>
+            <div id="board-picker" hidden>
+              <div class="select-wrap"><select id="board" name="board" required>
+                <option value="">Choose a Miro board</option>
+              </select></div>
+              <div class="board-links">
+                <button id="more" type="button" class="text-button" hidden>Load more boards</button>
+                <button id="disconnect" type="button" class="text-button">Disconnect</button>
+              </div>
+            </div>
+          </div>
+          <button id="generate" type="submit" class="primary" disabled>Generate in Miro</button>
+          <p id="feedback" class="feedback" role="status" aria-live="polite" hidden></p>
+          <a id="result-link" class="result-link" target="_blank" rel="noopener noreferrer" hidden>Open in Miro</a>
+        </form>
+      </section>
+      <section class="panel preview" aria-labelledby="preview-title">
+        <div class="preview-header">
+          <h2 id="preview-title">Board preview</h2>
+          <span id="preview-count"></span>
+        </div>
+        <div class="canvas" tabindex="0" role="region" aria-label="Retrospective layout">
+          <div id="layout" class="layout"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
