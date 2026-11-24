@@ -17,16 +17,24 @@
     </div>
   </header>
   <main class="page">
-    <div class="intro">
+    <header class="intro">
       <h1>Set up a sprint retrospective</h1>
-      <p>Choose a theme, preview the layout, and add it to a Miro board.</p>
-    </div>
+      <p>Pick a theme, make it your own, and bring it into Miro.</p>
+    </header>
+    <section class="theme-library" aria-labelledby="theme-title">
+      <div class="section-heading">
+        <h2 id="theme-title">Choose a theme</h2>
+        <button id="new-theme" type="button" class="secondary">＋ Create a theme</button>
+      </div>
+      <div id="theme-cards" class="theme-cards" role="group" aria-label="Retrospective themes"></div>
+      <div id="saved-themes" class="saved-themes" role="group" aria-label="Your custom themes" hidden></div>
+      <p id="theme-status" class="hint" role="status" hidden></p>
+    </section>
     <div class="workspace">
+      <div class="sidebar">
       <section class="panel settings" aria-labelledby="settings-title">
         <h2 id="settings-title">Retrospective settings</h2>
         <form id="generator">
-          <label for="theme">Theme</label>
-          <div class="select-wrap"><select id="theme" name="theme"></select></div>
           <label for="sprint">Sprint number</label>
           <input id="sprint" name="sprint" type="text" required maxlength="24" autocomplete="off" aria-describedby="sprint-error">
           <p id="sprint-error" class="field-error" hidden></p>
@@ -50,16 +58,52 @@
           <a id="result-link" class="result-link" target="_blank" rel="noopener noreferrer" hidden>Open in Miro</a>
         </form>
       </section>
+      <section class="panel settings attachments" aria-labelledby="attachments-title">
+        <h2 id="attachments-title">Board images</h2>
+        <p class="hint">Add up to six PNG or JPEG files, 5 MB each.</p>
+        <div id="drop-zone" class="drop-zone">
+          <span aria-hidden="true">📷</span>
+          <button id="pick-images" type="button" class="secondary">Choose images</button>
+          <span class="hint">or drop them here</span>
+          <input id="image-files" type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" multiple hidden>
+        </div>
+        <div id="image-list" class="image-list"></div>
+        <p id="image-status" class="hint" role="status" hidden></p>
+        <p class="hint image-privacy">Images stay in this browser until you generate a board.</p>
+      </section>
+      </div>
       <section class="panel preview" aria-labelledby="preview-title">
         <div class="preview-header">
-          <h2 id="preview-title">Board preview</h2>
-          <span id="preview-count"></span>
+          <div><h2 id="preview-title">Board preview</h2><span id="preview-count"></span></div>
+          <div class="preview-tools">
+            <div class="select-wrap"><select id="preview-section" aria-label="Jump to a section"></select></div>
+            <div class="zoom-controls" role="group" aria-label="Preview zoom">
+              <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
+              <button type="button" id="zoom-reset" aria-label="Reset zoom">100%</button>
+              <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+            </div>
+          </div>
         </div>
-        <div class="canvas" tabindex="0" role="region" aria-label="Retrospective layout">
+        <div id="canvas" class="canvas" tabindex="0" role="region" aria-label="Retrospective layout">
           <div id="layout" class="layout"></div>
         </div>
       </section>
     </div>
   </main>
+  <dialog id="theme-dialog" aria-labelledby="custom-title">
+    <form id="theme-form">
+      <div class="section-heading"><h2 id="custom-title">Create a theme</h2><button type="button" id="close-theme" class="icon-button" aria-label="Close theme editor">×</button></div>
+      <label for="custom-name">Theme name</label>
+      <input id="custom-name" name="name" maxlength="26" placeholder="For example, Space adventure" required autofocus>
+      <fieldset><legend>Theme emoji</legend><div id="emoji-options" class="emoji-options"></div></fieldset>
+      <fieldset><legend>Color palette</legend><div id="palette-options" class="palette-options"></div></fieldset>
+      <details><summary>Customize activities and prompts</summary><div id="activity-fields"></div></details>
+      <p id="custom-error" class="field-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" id="remove-theme" class="text-button" hidden>Delete theme</button>
+        <button type="submit" class="primary">Save theme</button>
+      </div>
+    </form>
+  </dialog>
 </body>
 </html>

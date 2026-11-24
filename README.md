@@ -4,6 +4,12 @@ Preview a sprint retrospective and add it to an existing Miro board as editable 
 
 Each retrospective has a themed check-in, four reflection frames, an action-items frame, and a closing activity. Replace placeholders such as `[Team members]`, `[Start date]`, `[End date]`, and `[Retrospective note]` directly in Miro.
 
+## Customize your retrospective
+
+- Choose an illustrated theme card, or select **Create a theme** and choose a name, emoji, and color palette. Expand **Customize activities and prompts** to personalize the check-in, four reflection sections, action heading, and closing. Draft themes are saved in the current browser and can be edited from the theme list.
+- In **Board images**, choose or drop up to six PNG or JPEG files, up to 5 MB each. The preview includes a **Sprint gallery** frame. The browser keeps draft attachments on this device, including while you sign in to Miro. When you generate, the service sends the images to the selected Miro board as individual image items. Use the remove button next to a file to remove it from the draft.
+- Use the zoom buttons and the section picker to inspect the layout before generating. All text, shapes, names, and notes are editable in Miro. Images are separate items you can move and resize.
+
 ## Run locally
 
 Use Node.js 22 or later. The app has no runtime dependencies to install.

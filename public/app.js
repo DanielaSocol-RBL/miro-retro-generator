@@ -1,8 +1,8 @@
-import { buildRetrospective, defaultSprint, stickyFills, themes } from './template.js'
+import { buildRetrospective, defaultSprint, stickyFills } from './template.js'
+import { createStudio } from './studio.js'
 
 const byId = id => document.getElementById(id)
 const form = byId('generator')
-const theme = byId('theme')
 const sprint = byId('sprint')
 const board = byId('board')
 const connect = byId('connect')
@@ -14,26 +14,36 @@ const sprintError = byId('sprint-error')
 const picker = byId('board-picker')
 const more = byId('more')
 const disconnect = byId('disconnect')
+const canvas = byId('canvas')
+const layout = byId('layout')
+const sectionPicker = byId('preview-section')
+const zoomOut = byId('zoom-out')
+const zoomIn = byId('zoom-in')
+const zoomReset = byId('zoom-reset')
 let connected = false
 let busy = false
+let authorizing = false
 let nextOffset = null
+let zoom = 100
 
-for (const [key, { name }] of Object.entries(themes)) theme.add(new Option(name, key))
-sprint.value = defaultSprint
-
-function restoreDraft() {
+function readDraft() {
   try {
-    const draft = JSON.parse(sessionStorage.getItem('retro-draft'))
-    if (Object.hasOwn(themes, draft?.theme)) theme.value = draft.theme
-    if (typeof draft?.sprint === 'string') sprint.value = draft.sprint
+    return JSON.parse(sessionStorage.getItem('retro-draft'))
   } catch {
-    // The app also works when browser storage is disabled.
+    return null
   }
 }
 
+const draft = readDraft()
+sprint.value = typeof draft?.sprint === 'string' ? draft.sprint : defaultSprint
+const studio = createStudio(() => {
+  saveDraft()
+  renderPreview()
+}, draft?.theme)
+
 function saveDraft() {
   try {
-    sessionStorage.setItem('retro-draft', JSON.stringify({ theme: theme.value, sprint: sprint.value }))
+    sessionStorage.setItem('retro-draft', JSON.stringify({ theme: studio.themes.id, sprint: sprint.value }))
   } catch {
     // OAuth can continue without a saved draft.
   }
@@ -42,11 +52,12 @@ function saveDraft() {
 async function api(path, data) {
   const options = data === undefined ? undefined : {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+    ...(data instanceof FormData
+      ? { body: data }
+      : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }),
   }
   const response = await fetch(path, options)
-  const result = await response.json()
+  const result = await response.json().catch(() => ({}))
   if (!response.ok) throw Object.assign(new Error(result.error), { result, status: response.status })
   return result
 }
@@ -60,7 +71,8 @@ function message(text, { error = false, url } = {}) {
 }
 
 function updateButton() {
-  generate.disabled = busy || !connected || !board.value || !sprint.validity.valid
+  generate.disabled = busy || studio.images.loading || !connected || !board.value || !sprint.validity.valid
+  connect.disabled = authorizing || studio.images.loading
 }
 
 function box(element, x, y, width, height, parent) {
@@ -73,7 +85,7 @@ function box(element, x, y, width, height, parent) {
 function renderPreview() {
   let template
   try {
-    template = buildRetrospective({ theme: theme.value, sprint: sprint.value })
+    template = buildRetrospective({ ...studio.themes.settings, sprint: sprint.value, images: studio.images.list })
     sprint.setCustomValidity('')
     sprint.removeAttribute('aria-invalid')
     sprintError.hidden = true
@@ -85,19 +97,28 @@ function renderPreview() {
     updateButton()
     return
   }
-  const layout = byId('layout')
   layout.style.aspectRatio = `${template.width} / ${template.height}`
   byId('preview-count').textContent = `${template.frames.length} editable frames`
+  const previousSection = sectionPicker.value
+  sectionPicker.replaceChildren(new Option('Jump to a section', ''), ...template.frames.map(frame =>
+    new Option(frame.key === 'check-in' ? 'Check-in' : frame.title, frame.key)))
+  if (template.frames.some(frame => frame.key === previousSection)) sectionPicker.value = previousSection
   const frames = template.frames.map(frame => {
     const region = document.createElement('section')
     region.className = 'frame'
+    region.dataset.frame = frame.key
     region.setAttribute('aria-label', frame.title)
     box(region, frame.x, frame.y, frame.width, frame.height, template)
     region.style.backgroundColor = frame.fill
     for (const item of frame.items) {
-      const element = document.createElement('div')
+      const element = document.createElement(item.type === 'image' ? 'img' : 'div')
       element.className = `item ${item.type} ${item.kind ?? ''}`
-      element.textContent = item.content
+      if (item.type === 'image') {
+        element.src = item.artwork ?? studio.images.list[item.index].url
+        element.alt = item.content
+      } else {
+        element.textContent = item.content
+      }
       if (!item.content) element.setAttribute('aria-hidden', 'true')
       box(element, item.x, item.y, item.width, item.height, frame)
       element.style.fontSize = `${(item.fontSize ?? (item.type === 'shape' ? 27 : 18)) / frame.width * 100}cqw`
@@ -109,6 +130,24 @@ function renderPreview() {
   })
   layout.replaceChildren(...frames)
   updateButton()
+}
+
+function setZoom(value) {
+  zoom = value
+  layout.style.setProperty('--zoom', String(zoom / 100))
+  zoomReset.textContent = `${zoom}%`
+  zoomOut.disabled = zoom <= 75
+  zoomIn.disabled = zoom >= 200
+}
+
+function generationPayload() {
+  const settings = { ...studio.themes.settings, sprint: sprint.value, boardId: board.value }
+  const images = studio.images.list
+  if (!images.length) return settings
+  const form = new FormData()
+  form.append('settings', JSON.stringify({ ...settings, images: images.map(({ width, height }) => ({ width, height })) }))
+  for (const { file } of images) form.append('images', file)
+  return form
 }
 
 async function loadBoards(offset = 0) {
@@ -151,14 +190,17 @@ function handleError(error) {
 }
 
 connect.addEventListener('click', async () => {
-  connect.disabled = true
+  authorizing = true
+  updateButton()
   saveDraft()
   try {
+    await studio.images.flush()
     const { authorizationUrl } = await api('/oauth/start', {})
     window.location.assign(authorizationUrl)
   } catch (error) {
     handleError(error)
-    connect.disabled = false
+    authorizing = false
+    updateButton()
   }
 })
 
@@ -177,31 +219,41 @@ disconnect.addEventListener('click', async () => {
 
 more.addEventListener('click', () => loadBoards(nextOffset))
 board.addEventListener('change', updateButton)
-theme.addEventListener('change', renderPreview)
-sprint.addEventListener('input', renderPreview)
+sprint.addEventListener('input', () => { saveDraft(); renderPreview() })
+zoomOut.addEventListener('click', () => setZoom(zoom - 25))
+zoomIn.addEventListener('click', () => setZoom(zoom + 25))
+zoomReset.addEventListener('click', () => setZoom(100))
+sectionPicker.addEventListener('change', () => {
+  const frame = [...layout.children].find(item => item.dataset.frame === sectionPicker.value)
+  if (frame) canvas.scrollTo({ top: frame.offsetTop, left: frame.offsetLeft })
+})
 form.addEventListener('submit', async event => {
   event.preventDefault()
   if (generate.disabled) return
   busy = true
   updateButton()
-  for (const control of [theme, sprint, board, disconnect, more]) control.disabled = true
+  for (const control of [sprint, board, disconnect, more]) control.disabled = true
+  studio.themes.setBusy(true)
+  studio.images.setBusy(true)
   generate.textContent = 'Generating…'
   message('Adding frames and notes to your Miro board.')
   try {
-    const result = await api('/api/generate', { theme: theme.value, sprint: sprint.value, boardId: board.value })
+    const result = await api('/api/generate', generationPayload())
     message(`Created ${result.frameIds.length} frames and ${result.createdItems - result.frameIds.length} editable items.`,
       { url: result.boardUrl })
   } catch (error) {
     handleError(error)
   } finally {
     busy = false
-    for (const control of [theme, sprint, board, disconnect, more]) control.disabled = false
+    for (const control of [sprint, board, disconnect, more]) control.disabled = false
+    studio.themes.setBusy(false)
+    studio.images.setBusy(false)
     generate.textContent = 'Generate in Miro'
     updateButton()
   }
 })
 
-restoreDraft()
+setZoom(100)
 renderPreview()
 const oauth = new URLSearchParams(location.search).get('oauth')
 if (oauth) {

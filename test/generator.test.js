@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildRetrospective, defaultSprint, themes } from '../public/template.js'
+import { buildRetrospective, customDefaults, defaultSprint, themes } from '../public/template.js'
 import { generateRetrospective, HttpError, itemPayload } from '../src/miro.js'
 
 test('Autumn Sprint 3.15 includes the seven activities and reusable placeholders', () => {
@@ -35,7 +35,7 @@ test('all themes generate distinct prompts and keep editable items within their 
     }
   }
   assert.equal(prompts.size, 3)
-  assert.throws(() => buildRetrospective({ theme: '__proto__', sprint: '3.15' }), /Choose Autumn/)
+  assert.throws(() => buildRetrospective({ theme: '__proto__', sprint: '3.15' }), /Choose a retrospective theme/)
   assert.throws(() => buildRetrospective({ theme: 'autumn', sprint: '<img>' }), /sprint number/)
 })
 
@@ -61,15 +61,37 @@ test('writes only new frames and native items and places them beyond paginated c
   let writeIndex = 0
   for (const [frameIndex, frame] of template.frames.entries()) {
     writeIndex++
-    for (const { x, y } of frame.items) {
-      const { parent, position } = writes[writeIndex++].body
+    for (const { x, y, type } of frame.items) {
+      const payload = writes[writeIndex++].body
+      const { parent, position } = type === 'image' ? JSON.parse(await payload.get('data').text()) : payload
       assert.equal(parent.id, result.frameIds[frameIndex])
       assert.deepEqual(position, { x, y })
     }
   }
-  for (const endpoint of ['shapes', 'texts', 'sticky_notes']) {
+  for (const endpoint of ['shapes', 'texts', 'sticky_notes', 'images']) {
     assert.ok(writes.some(write => write.path.endsWith('/' + endpoint)))
   }
+})
+
+test('custom content and uploaded images share the exact preview and generation geometry', () => {
+  const customTheme = { ...customDefaults, name: 'Space crew', emoji: '🚀', reflections: [
+    ['Lift-off', 'What made us fly?'], ...customDefaults.reflections.slice(1),
+  ] }
+  const input = { theme: 'custom', sprint: '4.02', customTheme }
+  const images = Array.from({ length: 6 }, (_, i) => ({ name: `${i}.png`, width: i % 2 ? 1000 : 95, height: 480 }))
+  const result = buildRetrospective({ ...input, images })
+  assert.equal(result.title, 'Space crew RETRO — Sprint 4.02')
+  assert.ok(result.frames[0].items.some(item => item.content === '🚀'))
+  assert.equal(result.frames[1].title, 'Lift-off')
+  const gallery = result.frames.at(-1)
+  assert.equal(gallery.title, 'Sprint gallery')
+  gallery.items.slice(1).forEach((item, index) => {
+    assert.equal(item.index, index)
+    assert.ok(Math.abs(item.width / item.height - images[index].width / images[index].height) < 0.0001)
+    assert.ok(item.y + item.height / 2 <= gallery.height)
+    assert.ok(item.x + item.width / 2 <= gallery.width)
+  })
+  assert.throws(() => buildRetrospective({ ...input, customTheme: { ...customTheme, reflections: [] } }), /reflection title/)
 })
 
 test('an interrupted write reports created items without modifying or retrying anything', async () => {

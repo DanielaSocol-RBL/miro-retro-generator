@@ -3,7 +3,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
-import { buildRetrospective } from '../public/template.js'
+import { buildRetrospective, imageTypes, maxImageBytes, maxImages, themes } from '../public/template.js'
 import { boardIdPattern, createMiroClient, generateRetrospective, HttpError, listBoards } from './miro.js'
 
 const sessionCookie = 'retro_session'
@@ -14,9 +14,13 @@ const publicFiles = new Map([
   ['/style.css', ['style.css', 'text/css']],
   ['/app.js', ['app.js', 'text/javascript']],
   ['/template.js', ['template.js', 'text/javascript']],
+  ['/studio.js', ['studio.js', 'text/javascript']],
 ].map(([route, [file, type]]) => [
   route, [readFileSync(new URL(`../public/${file}`, import.meta.url)), `${type}; charset=utf-8`],
 ]))
+for (const { artwork } of Object.values(themes)) {
+  publicFiles.set(artwork, [readFileSync(new URL(`../public${artwork}`, import.meta.url)), 'image/jpeg'])
+}
 
 const opaqueId = () => randomBytes(32).toString('base64url')
 
@@ -56,26 +60,66 @@ function json(response, status, body) {
   response.end(JSON.stringify(body))
 }
 
-async function readJson(request) {
-  if (request.headers['content-type']?.split(';')[0] !== 'application/json') {
-    throw new HttpError(415, 'Send a JSON request.')
-  }
-  if (Number(request.headers['content-length']) > 4096) throw new HttpError(413, 'Request is too large.')
+async function readBody(request, limit) {
+  if (Number(request.headers['content-length']) > limit) throw new HttpError(413, 'Request is too large.')
   const chunks = []
   let size = 0
   for await (const chunk of request.iterator({ destroyOnReturn: false })) {
     size += chunk.length
-    if (size > 4096) {
+    if (size > limit) {
       request.resume()
       throw new HttpError(413, 'Request is too large.')
     }
     chunks.push(chunk)
   }
+  return Buffer.concat(chunks)
+}
+
+function parseJson(value) {
   try {
-    return JSON.parse(Buffer.concat(chunks).toString())
+    return JSON.parse(value)
   } catch {
     throw new HttpError(400, 'Send a valid JSON request.')
   }
+}
+
+async function readGeneration(request) {
+  const contentType = request.headers['content-type'] ?? ''
+  const type = contentType.split(';')[0].trim().toLowerCase()
+  if (type === 'application/json') {
+    return { input: parseJson((await readBody(request, 4096)).toString()), images: [] }
+  }
+  if (type !== 'multipart/form-data') throw new HttpError(415, 'Choose a theme and try generating again.')
+  const body = await readBody(request, maxImages * maxImageBytes + 64 * 1024)
+  let form
+  try {
+    form = await new Response(body, { headers: { 'Content-Type': contentType } }).formData()
+  } catch {
+    throw new HttpError(400, 'The images could not be read. Select the files again.')
+  }
+  const data = form.get('settings')
+  if (typeof data !== 'string' || data.length > 4096) throw new HttpError(400, 'Invalid retrospective settings.')
+  const input = parseJson(data)
+  const files = form.getAll('images')
+  if (files.length > maxImages || !Array.isArray(input?.images) || files.length !== input.images.length) {
+    throw new HttpError(400, `Attach up to ${maxImages} images.`)
+  }
+  const images = []
+  for (const [index, file] of files.entries()) {
+    if (!(file instanceof File) || !imageTypes.includes(file.type) || !file.size || file.size > maxImageBytes) {
+      throw new HttpError(400, 'Use PNG or JPEG images up to 5 MB each.')
+    }
+    const header = Buffer.from(await file.slice(0, 8).arrayBuffer())
+    const signature = file.type === 'image/png' ? '89504e470d0a1a0a' : 'ffd8ff'
+    if (!header.toString('hex').startsWith(signature)) throw new HttpError(400, 'An attachment is not a valid PNG or JPEG image.')
+    const { width, height } = input.images[index] ?? {}
+    if (![width, height].every(value => Number.isInteger(value) && value > 0 && value <= 32768)) {
+      throw new HttpError(400, 'An attachment has unsupported image dimensions.')
+    }
+    const name = file.name.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 100) || `Image ${index + 1}`
+    images.push({ file, name, width, height })
+  }
+  return { input, images }
 }
 
 export function createApp(settings, miro = createMiroClient()) {
@@ -98,7 +142,7 @@ export function createApp(settings, miro = createMiroClient()) {
     response.setHeader('Cache-Control', 'no-store')
     response.setHeader('Referrer-Policy', 'no-referrer')
     response.setHeader('X-Content-Type-Options', 'nosniff')
-    response.setHeader('Content-Security-Policy', "default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+    response.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' blob:; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
     try {
       const url = new URL(request.url, settings.origin)
       const { pathname, searchParams } = url
@@ -171,19 +215,19 @@ export function createApp(settings, miro = createMiroClient()) {
         return json(response, 200, await listBoards(call, offset))
       }
 
-      const input = await readJson(request)
+      const { input, images } = await readGeneration(request)
       const boardId = input?.boardId
       if (typeof boardId !== 'string' || !boardIdPattern.test(boardId)) throw new HttpError(400, 'Choose a valid Miro board.')
       let template
       try {
-        template = buildRetrospective(input)
+        template = buildRetrospective({ ...input, images })
       } catch (error) {
         throw new HttpError(400, error.message)
       }
       if (busyBoards.has(boardId)) throw new HttpError(409, 'A retrospective is already being generated on this board.')
       busyBoards.add(boardId)
       try {
-        return json(response, 201, await generateRetrospective(call, boardId, template))
+        return json(response, 201, await generateRetrospective(call, boardId, template, images))
       } finally {
         busyBoards.delete(boardId)
       }

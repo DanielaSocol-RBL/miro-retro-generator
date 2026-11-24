@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createApp, settingsFrom } from '../src/server.js'
 import { createMiroClient } from '../src/miro.js'
+import { customDefaults } from '../public/template.js'
 
 const origin = 'https://retro.example'
 const settings = settingsFrom({
@@ -126,4 +127,60 @@ test('uses the public Render URL for OAuth and honors a custom origin', () => {
     secure: true,
   })
   assert.equal(settingsFrom({ ...env, APP_ORIGIN: origin }).redirectUri, origin + '/oauth/callback')
+})
+
+test('copies validated uploaded bytes to a native Miro image in the generated gallery', async t => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7XsAAAAASUVORK5CYII=', 'base64')
+  const images = []
+  let writes = 0
+  const app = await startApp(t, createMiroClient(async (url, options) => {
+    const path = new URL(url).pathname
+    if (path === '/v1/oauth/token') return Response.json({ access_token: 'token' })
+    if (path.endsWith('/items')) return Response.json({ data: [] })
+    if (path.endsWith('/images')) {
+      assert.equal(options.headers.Authorization, 'Bearer token')
+      assert.equal(options.headers['Content-Type'], undefined)
+      const outgoing = new Request(url, options)
+      assert.match(outgoing.headers.get('content-type'), /^multipart\/form-data; boundary=/)
+      const form = await outgoing.formData()
+      const data = form.get('data')
+      images.push({
+        settings: JSON.parse(typeof data === 'string' ? data : await data.text()),
+        file: form.get('resource'),
+      })
+    }
+    return Response.json({ id: String(++writes) })
+  }))
+  const start = await app('/oauth/start', post({}))
+  const pending = getCookie(start)
+  const { authorizationUrl } = await start.json()
+  const state = new URL(authorizationUrl).searchParams.get('state')
+  const callback = await app(`/oauth/callback?code=test&state=${state}`, { headers: { Cookie: pending } })
+  const Cookie = getCookie(callback)
+
+  const upload = (bytes, type = 'image/png') => {
+    const body = new FormData()
+    body.append('settings', JSON.stringify({
+      boardId: 'MiroBoard=', sprint: '4.12', theme: 'custom', customTheme: { ...customDefaults, name: 'Space crew' },
+      images: [{ width: 1, height: 1 }],
+    }))
+    body.append('images', new Blob([bytes], { type }), 'sample.png')
+    return app('/api/generate', { method: 'POST', headers: { Origin: origin, Cookie }, body })
+  }
+  assert.equal((await upload('fake bytes')).status, 400)
+  assert.equal((await upload(png, 'image/gif')).status, 400)
+  assert.equal(writes, 0)
+
+  const response = await upload(png)
+  assert.equal(response.status, 201)
+  const result = await response.json()
+  assert.equal(result.frameIds.length, 8)
+  assert.equal(images.length, 1)
+  const [{ settings, file }] = images
+  assert.deepEqual(settings, {
+    title: 'sample.png', altText: 'sample.png', position: { x: 233, y: 233 },
+    geometry: { width: 225, height: 225 }, parent: { id: result.frameIds.at(-1) },
+  })
+  assert.equal(file.type, 'image/png')
+  assert.deepEqual(Buffer.from(await file.arrayBuffer()), png)
 })

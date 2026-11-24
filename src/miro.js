@@ -1,7 +1,12 @@
 import { setTimeout as delay } from 'node:timers/promises'
+import { readFileSync } from 'node:fs'
+import { themes } from '../public/template.js'
 
 const api = 'https://api.miro.com'
 const resources = { shape: 'shapes', text: 'texts', sticky_note: 'sticky_notes' }
+const themeArtwork = new Map(Object.values(themes).map(({ artwork }) => [
+  artwork, new Blob([readFileSync(new URL(`../public${artwork}`, import.meta.url))], { type: 'image/jpeg' }),
+]))
 export const boardIdPattern = /^[A-Za-z0-9_+=-]{1,100}$/
 const boardPath = id => `/v2/boards/${encodeURIComponent(id)}`
 
@@ -59,8 +64,12 @@ export function createMiroClient(fetcher = fetch) {
       const options = { headers: { Authorization: `Bearer ${accessToken}` } }
       if (body) {
         options.method = 'POST'
-        options.headers['Content-Type'] = 'application/json'
-        options.body = JSON.stringify(body)
+        if (body instanceof FormData) {
+          options.body = body
+        } else {
+          options.headers['Content-Type'] = 'application/json'
+          options.body = JSON.stringify(body)
+        }
       }
       for (let attempt = 0; ; attempt++) {
         const response = await request(api + path, options)
@@ -151,7 +160,21 @@ function createdId(value) {
   return value.id
 }
 
-export async function generateRetrospective(call, boardId, template) {
+function imagePayload(item, frameId, file) {
+  const payload = new FormData()
+  const settings = {
+    title: item.content,
+    altText: item.content,
+    position: { x: item.x, y: item.y },
+    geometry: { width: item.width, height: item.height },
+    parent: { id: frameId },
+  }
+  payload.append('data', new Blob([JSON.stringify(settings)], { type: 'application/json' }), '')
+  payload.append('resource', file, file.type === 'image/png' ? 'attachment.png' : 'attachment.jpg')
+  return payload
+}
+
+export async function generateRetrospective(call, boardId, template, images = []) {
   const path = boardPath(boardId)
   const x = await placement(call, path)
   const baseUrl = `https://miro.com/app/board/${encodeURIComponent(boardId)}/`
@@ -169,7 +192,9 @@ export async function generateRetrospective(call, boardId, template) {
       frameIds.push(frameId)
       createdItems++
       for (const item of frame.items) {
-        const result = await call(`${path}/${resources[item.type]}`, itemPayload(item, frameId))
+        const result = item.type === 'image'
+          ? await call(`${path}/images`, imagePayload(item, frameId, item.artwork ? themeArtwork.get(item.artwork) : images[item.index].file))
+          : await call(`${path}/${resources[item.type]}`, itemPayload(item, frameId))
         createdId(result)
         createdItems++
       }
