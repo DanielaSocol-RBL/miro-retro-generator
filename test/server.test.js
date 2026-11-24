@@ -114,3 +114,16 @@ test('preview can run without Miro credentials and refuses externally hosted pla
   assert.equal(settingsFrom({}).redirectUri, 'http://localhost:3000/oauth/callback')
   assert.throws(() => settingsFrom({ APP_ORIGIN: 'http://retro.example' }), /HTTPS origin/)
 })
+
+test('uses the public Render URL for OAuth and honors a custom origin', () => {
+  const env = { PORT: '10000', RENDER_EXTERNAL_URL: 'https://retro.onrender.com/' }
+  assert.deepEqual(settingsFrom(env), {
+    clientId: undefined,
+    clientSecret: undefined,
+    port: 10000,
+    origin: 'https://retro.onrender.com',
+    redirectUri: 'https://retro.onrender.com/oauth/callback',
+    secure: true,
+  })
+  assert.equal(settingsFrom({ ...env, APP_ORIGIN: origin }).redirectUri, origin + '/oauth/callback')
+})

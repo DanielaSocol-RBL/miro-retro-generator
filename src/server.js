@@ -22,7 +22,7 @@ const opaqueId = () => randomBytes(32).toString('base64url')
 
 export function settingsFrom(env) {
   const port = Number(env.PORT ?? 3000)
-  const url = new URL(env.APP_ORIGIN ?? `http://localhost:${port}`)
+  const url = new URL(env.APP_ORIGIN || env.RENDER_EXTERNAL_URL || `http://localhost:${port}`)
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
   if (
     (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) ||

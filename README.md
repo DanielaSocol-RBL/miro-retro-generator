@@ -36,7 +36,19 @@ Miro developer documentation covers [developer teams](https://developers.miro.co
 
 Production must use HTTPS. The server stores access and refresh tokens in memory and gives the browser an opaque, HTTP-only, SameSite session cookie. The cookie is marked Secure on HTTPS. Disconnect clears the application session. You can remove the app's grant in Miro.
 
-## Deploy
+## Deploy on Render
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2FDanielaSocol-RBL%2Fmiro-retro-generator)
+
+1. Open the deployment link, sign in or create a Render account, and select **Deploy Blueprint**. The Blueprint provisions a free Node web service and runs the application tests during the build.
+2. When the service is live, copy its `https://…onrender.com` address from the Render dashboard. The web app can preview retrospectives immediately.
+3. Create a developer app from the **Your apps** tab in Miro settings. Select **Expire user authorization token** when you create the app. Enable the `boards:read` and `boards:write` scopes. In **Redirect URI for OAuth 2.0**, paste your Render address followed by `/oauth/callback`.
+4. In the Render service, open **Environment** and add `MIRO_CLIENT_ID` and `MIRO_CLIENT_SECRET`, using the values from the Miro developer app. Add both before selecting **Save, rebuild, and deploy**. Keep the secret in the Render dashboard.
+5. Reopen the app, select **Connect to Miro**, and authorize the team containing the destination board. Choose an editable test board and select **Generate in Miro**.
+
+Render supplies the HTTPS origin automatically. The free service can take about a minute to wake up after being idle and a restart ends active Miro sessions. Reconnect in the app if needed.
+
+## Other hosting providers
 
 1. Create a Node web service from this repository on a host such as Render or Railway. Select Node 22 or newer and use `npm start` as its start command. The app has no build step.
 2. Set `APP_ORIGIN` to the service's final HTTPS origin, such as `https://retro.example.com`. Set the Miro credentials using the host's environment variables or secret settings. Use the host-provided `PORT`.

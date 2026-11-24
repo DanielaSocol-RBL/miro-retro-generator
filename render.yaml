@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: miro-retro-generator
+    runtime: node
+    plan: free
+    buildCommand: node --test
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_VERSION
+        value: '24.x'
+      - key: SKIP_INSTALL_DEPS
+        value: 'true'
